@@ -1,6 +1,8 @@
 import os, json, urllib.request, urllib.error, traceback
 from http.server import BaseHTTPRequestHandler
 
+GLAMA_URL = "https://gateway.glama.ai/v1/chat/completions"
+
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self._json(200, {"status": "online", "agent": "DavTeam", "model": "gemini-2.0-pro-exp-02-05"})
@@ -14,26 +16,31 @@ class handler(BaseHTTPRequestHandler):
             if not key:
                 return self._json(500, {"error": "GLAMA_API_KEY not set"})
 
+            history = data.get("history", [])
+            history.append({"role": "user", "content": data.get("message", "hi")})
+
             payload = json.dumps({
                 "model": "gemini-2.0-pro-exp-02-05",
                 "messages": [
-                    {"role": "system", "content": "You are DavTeam Agent built by David. Expert in ARM64/Termux, FastAPI, Bun, Android, SaaS."},
-                    {"role": "user",   "content": data.get("message", "hi")}
+                    {"role": "system", "content": "You are DavTeam Agent built by David. Expert in ARM64/Termux, FastAPI, Bun, Android, SaaS. Be direct."},
+                    *history
                 ],
-                "max_tokens": 1024
+                "max_tokens": 1024,
+                "temperature": 0.7
             }).encode()
 
             req = urllib.request.Request(
-                "https://gateway.glama.ai/v1/chat/completions",
+                GLAMA_URL,
                 data=payload,
                 headers={
-                    "Authorization": f"Bearer {key}",
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {key}"
                 }
             )
             res   = urllib.request.urlopen(req, timeout=25)
             reply = json.loads(res.read())["choices"][0]["message"]["content"]
-            self._json(200, {"reply": reply})
+            history.append({"role": "assistant", "content": reply})
+            self._json(200, {"reply": reply, "history": history})
 
         except urllib.error.HTTPError as e:
             self._json(500, {"error": f"Glama HTTP {e.code}", "body": e.read().decode()})
