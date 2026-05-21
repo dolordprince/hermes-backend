@@ -1,26 +1,26 @@
 import os, json, urllib.request, urllib.error, traceback
 from http.server import BaseHTTPRequestHandler
 
-GLAMA_URL = "https://gateway.glama.ai/v1/chat/completions"
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self._json(200, {"status": "online", "agent": "DavTeam", "model": "gemini-1.5-flash"})
+        self._json(200, {"status": "online", "agent": "DavTeam", "model": "llama-3.3-70b-versatile"})
 
     def do_POST(self):
         try:
             length  = int(self.headers.get("Content-Length", 0))
             data    = json.loads(self.rfile.read(length))
-            key     = os.environ.get("GLAMA_API_KEY", "")
+            key     = os.environ.get("GROQ_API_KEY", "")
 
             if not key:
-                return self._json(500, {"error": "GLAMA_API_KEY not set"})
+                return self._json(500, {"error": "GROQ_API_KEY not set"})
 
             history = data.get("history", [])
             history.append({"role": "user", "content": data.get("message", "hi")})
 
             payload = json.dumps({
-                "model": "gemini-1.5-flash",
+                "model": "llama-3.3-70b-versatile",
                 "messages": [
                     {"role": "system", "content": "You are DavTeam Agent built by David. Expert in ARM64/Termux, FastAPI, Bun, Android, SaaS."},
                     *history
@@ -30,7 +30,7 @@ class handler(BaseHTTPRequestHandler):
             }).encode()
 
             req = urllib.request.Request(
-                GLAMA_URL, data=payload,
+                GROQ_URL, data=payload,
                 headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
             )
             res   = urllib.request.urlopen(req, timeout=25)
