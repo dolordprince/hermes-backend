@@ -1,37 +1,39 @@
-import os
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from openai import AsyncOpenAI
-from dotenv import load_dotenv
+import os, json, urllib.request
+from http.server import BaseHTTPRequestHandler
 
-load_dotenv()
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = json.dumps({"status": "online", "agent": "DavTeam"}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(body)
 
-app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    def do_POST(self):
+        length  = int(self.headers.get("Content-Length", 0))
+        data    = json.loads(self.rfile.read(length))
+        key     = os.environ.get("GROQ_API_KEY", "")
+        model   = os.environ.get("MODEL", "llama-3.3-70b-versatile")
 
-client = AsyncOpenAI(
-    base_url="https://api.groq.com/openai/v1",
-    api_key=os.environ.get("GROQ_API_KEY", ""),
-)
+        payload = json.dumps({
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "You are DavTeam Agent built by David."},
+                {"role": "user",   "content": data.get("message", "hi")}
+            ],
+            "max_tokens": 1024
+        }).encode()
 
-MODEL = os.environ.get("MODEL", "llama-3.3-70b-versatile")
-SYSTEM = {"role": "system", "content": "You are DavTeam Agent built by David. Expert in ARM64/Termux, FastAPI, Bun, Android, SaaS."}
+        req   = urllib.request.Request(
+            "https://api.groq.com/openai/v1/chat/completions",
+            data=payload,
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        )
+        res   = urllib.request.urlopen(req, timeout=30)
+        reply = json.loads(res.read())["choices"][0]["message"]["content"]
 
-@app.get("/health")
-async def health():
-    return JSONResponse({"status": "online", "key_set": bool(os.environ.get("GROQ_API_KEY")), "model": MODEL})
-
-@app.post("/chat")
-async def rest_chat(body: dict):
-    history = list(body.get("history", []))
-    history.append({"role": "user", "content": body["message"]})
-    response = await client.chat.completions.create(
-        model=MODEL,
-        messages=[SYSTEM, *history],
-        temperature=0.7,
-        max_tokens=1024,
-    )
-    reply = response.choices[0].message.content
-    history.append({"role": "assistant", "content": reply})
-    return {"reply": reply, "history": history}
+        out = json.dumps({"reply": reply}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(out)
