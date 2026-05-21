@@ -1,39 +1,49 @@
-import os, json, urllib.request
+import os, json, urllib.request, urllib.error, traceback
 from http.server import BaseHTTPRequestHandler
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        body = json.dumps({"status": "online", "agent": "DavTeam"}).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(body)
+        self._json(200, {"status": "online", "agent": "DavTeam",
+                         "key_set": bool(os.environ.get("GROQ_API_KEY"))})
 
     def do_POST(self):
-        length  = int(self.headers.get("Content-Length", 0))
-        data    = json.loads(self.rfile.read(length))
-        key     = os.environ.get("GROQ_API_KEY", "")
-        model   = os.environ.get("MODEL", "llama-3.3-70b-versatile")
+        try:
+            length  = int(self.headers.get("Content-Length", 0))
+            data    = json.loads(self.rfile.read(length))
+            key     = os.environ.get("GROQ_API_KEY", "")
+            model   = os.environ.get("MODEL", "llama-3.3-70b-versatile")
 
-        payload = json.dumps({
-            "model": model,
-            "messages": [
-                {"role": "system", "content": "You are DavTeam Agent built by David."},
-                {"role": "user",   "content": data.get("message", "hi")}
-            ],
-            "max_tokens": 1024
-        }).encode()
+            if not key:
+                return self._json(500, {"error": "GROQ_API_KEY not set"})
 
-        req   = urllib.request.Request(
-            "https://api.groq.com/openai/v1/chat/completions",
-            data=payload,
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        )
-        res   = urllib.request.urlopen(req, timeout=30)
-        reply = json.loads(res.read())["choices"][0]["message"]["content"]
+            payload = json.dumps({
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": "You are DavTeam Agent."},
+                    {"role": "user",   "content": data.get("message", "hi")}
+                ],
+                "max_tokens": 512
+            }).encode()
 
-        out = json.dumps({"reply": reply}).encode()
-        self.send_response(200)
+            req   = urllib.request.Request(
+                "https://api.groq.com/openai/v1/chat/completions",
+                data=payload,
+                headers={"Authorization": f"Bearer {key}",
+                         "Content-Type": "application/json"}
+            )
+            res   = urllib.request.urlopen(req, timeout=25)
+            reply = json.loads(res.read())["choices"][0]["message"]["content"]
+            self._json(200, {"reply": reply})
+
+        except urllib.error.HTTPError as e:
+            self._json(500, {"error": f"Groq HTTP {e.code}", "body": e.read().decode()})
+        except Exception as e:
+            self._json(500, {"error": str(e), "trace": traceback.format_exc()})
+
+    def _json(self, code, obj):
+        body = json.dumps(obj).encode()
+        self.send_response(code)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
-        self.wfile.write(out)
+        self.wfile.write(body)
